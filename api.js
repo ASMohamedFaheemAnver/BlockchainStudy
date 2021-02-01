@@ -1,6 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const { v4: uuidv4 } = require("uuid");
+const rp = require("request-promise");
 
 const Blockchain = require("./blockchain");
 
@@ -10,7 +11,8 @@ const bitcoin = new Blockchain();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
-const nodeAddress = uuidv4().split("-").join("");
+const NODE_ADDRESS = uuidv4().split("-").join("");
+const PORT = process.argv[2];
 
 app.get("/blockchain", (req, res) => {
   res.send(bitcoin);
@@ -34,13 +36,59 @@ app.get("/mine", (req, res) => {
   };
   const nonce = bitcoin.proofOfWork(previousBlockHash, currentBlockData);
   const hash = bitcoin.hashBlock(previousBlockHash, currentBlockData, nonce);
-  bitcoin.createNewTransaction(12.5, "00", nodeAddress);
+  bitcoin.createNewTransaction(12.5, "00", NODE_ADDRESS);
   const newBlock = bitcoin.createNewBlock(nonce, previousBlockHash, hash);
   res.json({
     block: newBlock,
   });
 });
 
-app.listen(process.env.PORT || 3000, () => {
+app.post("/rnbroadcast", (req, res) => {
+  const newNodeUrl = req.body.url;
+  if (bitcoin.networkNotes.indexOf(newNodeUrl) == -1) bitcoin.networkNotes.push(newNodeUrl);
+  const regNodePromises = [];
+  bitcoin.networkNotes.forEach((networkNoteUrl) => {
+    const requestOptions = {
+      uri: networkNoteUrl + "/register",
+      method: "POST",
+      body: { url: newNodeUrl },
+      json: true,
+    };
+    regNodePromises.push(rp(requestOptions));
+  });
+  Promise.all(regNodePromises)
+    .then((data) => {
+      const bulkRegisterOpetions = {
+        uri: newNodeUrl + "/registermn",
+        method: "POST",
+        body: { urls: [...bitcoin.networkNotes, bitcoin.crurrentNodeUrl] },
+        json: true,
+      };
+      return rp(bulkRegisterOpetions);
+    })
+    .then((data) => {
+      res.json({ message: "200 OK!", urls: bitcoin.networkNotes });
+    });
+});
+
+app.post("/register", (req, res) => {
+  const newNodeUrl = req.body.url;
+  if (bitcoin.crurrentNodeUrl !== newNodeUrl) {
+    if (bitcoin.networkNotes.indexOf(newNodeUrl) === -1) {
+      bitcoin.networkNotes.push(newNodeUrl);
+    }
+  }
+  return res.json({ message: "200 OK!", urls: bitcoin.networkNotes });
+});
+
+app.post("/registermn", (req, res) => {
+  const allNetworkNodes = req.body.urls;
+  bitcoin.networkNotes = allNetworkNodes.filter((url) => {
+    return url !== bitcoin.crurrentNodeUrl;
+  });
+  return res.json({ message: "200 OK!", urls: bitcoin.networkNotes });
+});
+
+app.listen(PORT || 3000, () => {
   console.log("Server is up and running!");
 });
