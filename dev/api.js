@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require("uuid");
 const rp = require("request-promise");
 
 const Blockchain = require("./blockchain");
+const requestPromise = require("request-promise");
 
 const app = express();
 const bitcoin = new Blockchain();
@@ -19,12 +20,30 @@ app.get("/blockchain", (req, res) => {
 });
 
 app.post("/transaction", (req, res) => {
-  const blockIndex = bitcoin.createNewTransaction(
+  const blockIndex = bitcoin.addTransactionToPendingTransactions(req.body);
+  return res.json({ note: blockIndex });
+});
+
+app.post("/btransaction", (req, res) => {
+  const newTransaction = bitcoin.createNewTransaction(
     req.body.amount,
     req.body.sender,
     req.body.recipient
   );
-  return res.json({ note: blockIndex });
+  bitcoin.addTransactionToPendingTransactions(newTransaction);
+  const reqPromises = [];
+  bitcoin.networkNotes.forEach((networkNoteUrl) => {
+    const requestOptions = {
+      uri: networkNoteUrl + "/transaction",
+      method: "POST",
+      body: newTransaction,
+      json: true,
+    };
+    reqPromises.push(rp(requestOptions));
+  });
+  Promise.all(reqPromises).then((data) => {
+    res.json({ message: "200 OK!" });
+  });
 });
 
 app.get("/mine", (req, res) => {
