@@ -55,11 +55,53 @@ app.get("/mine", (req, res) => {
   };
   const nonce = bitcoin.proofOfWork(previousBlockHash, currentBlockData);
   const hash = bitcoin.hashBlock(previousBlockHash, currentBlockData, nonce);
-  bitcoin.createNewTransaction(12.5, "00", NODE_ADDRESS);
   const newBlock = bitcoin.createNewBlock(nonce, previousBlockHash, hash);
-  res.json({
-    block: newBlock,
+
+  const requestPromises = [];
+  bitcoin.networkNotes.forEach((networkNoteUrl) => {
+    const requestOptions = {
+      uri: networkNoteUrl + "/mined",
+      method: "POST",
+      body: newBlock,
+      json: true,
+    };
+    requestPromises.push(rp(requestOptions));
   });
+
+  Promise.all(requestPromises)
+    .then((data) => {
+      const requestOptions = {
+        uri: bitcoin.crurrentNodeUrl + "/btransaction",
+        method: "POST",
+        body: {
+          amount: 12.5,
+          sender: "00",
+          recipient: NODE_ADDRESS,
+        },
+        json: true,
+      };
+      return rp(requestOptions);
+    })
+    .then((_) => {
+      res.json({
+        block: newBlock,
+      });
+    });
+});
+
+app.post("/mined", (req, res) => {
+  const newBlock = req.body;
+  const lastBlock = bitcoin.getLastBlock();
+  if (
+    lastBlock.hash === newBlock.previousBlockHash &&
+    lastBlock["index"] + 1 === newBlock["index"]
+  ) {
+    bitcoin.chain.push(newBlock);
+    bitcoin.pendingTransactions = [];
+    res.json({ msg: "200 OK!" });
+  } else {
+    res.json({ message: "REJECTED!" });
+  }
 });
 
 app.post("/rnbroadcast", (req, res) => {
